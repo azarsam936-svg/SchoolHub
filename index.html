@@ -36,6 +36,7 @@ pre{white-space:pre-wrap;font-family:inherit;font-size:13px}
 <div id="app"></div>
 <div id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 const U='https://wqccpdenuefkwzmfzdrl.supabase.co',K='sb_publishable_u5Q9gcVskg92y8dwMIH88A_h8vxpuzO';
 const sb=supabase.createClient(U,K);
@@ -111,7 +112,17 @@ async function adminUsers(role){
   const isS=role==='student';
   const cn=id=>c.find(x=>x.id===id)?.name||'';
   if(isS&&!c.length){$('#v').innerHTML='<div class="card">اول از بخش «ساختار» کلاس بسازید.</div>';return}
-  $('#v').innerHTML=`<div class="card"><h3>افزودن ${isS?'دانش‌آموز':'معلم'}</h3>${isS?`<select id="cl">${opts(c,'id','name')}</select>`:''}<textarea id="tx" rows="5" placeholder="هر خط یک نفر:&#10;نام کامل، نام کاربری، رمز"></textarea><small>نام کاربری فقط حروف انگلیسی/عدد (مثلاً کد ملی)، رمز حداقل ۶ کاراکتر</small><br><button id="go">ثبت</button><pre id="lg"></pre></div><div class="card"><table><tr><th>نام</th><th>نام کاربری</th>${isS?'<th>کلاس</th>':''}</tr>${p.map(x=>`<tr><td>${esc(x.full_name)}</td><td dir="ltr">${esc(x.username)}</td>${isS?`<td>${esc(cn(st.find(z=>z.id===x.id)?.class_id))}</td>`:''}</tr>`).join('')}</table></div>`;
+  $('#v').innerHTML=`<div class="card"><h3>افزودن ${isS?'دانش‌آموز':'معلم'}</h3>${isS?`<select id="cl">${opts(c,'id','name')}</select>`:''}<label>فایل اکسل (ستون اول: نام، دوم: نام کاربری، سوم: رمز)</label><input id="xl" type="file" accept=".xlsx,.xls,.csv"><textarea id="tx" rows="5" placeholder="هر خط یک نفر:&#10;نام کامل، نام کاربری، رمز"></textarea><small>نام کاربری فقط حروف انگلیسی/عدد (مثلاً کد ملی)، رمز حداقل ۶ کاراکتر</small><br><button id="go">ثبت</button><pre id="lg"></pre></div><div class="card"><table><tr><th>نام</th><th>نام کاربری</th>${isS?'<th>کلاس</th>':''}</tr>${p.map(x=>`<tr><td>${esc(x.full_name)}</td><td dir="ltr">${esc(x.username)}</td>${isS?`<td>${esc(cn(st.find(z=>z.id===x.id)?.class_id))}</td>`:''}</tr>`).join('')}</table></div>`;
+  $('#xl').onchange=async e=>{
+    const f=e.target.files[0];if(!f)return;
+    try{
+      const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});
+      const r=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:false,defval:''}).filter(x=>String(x[0]).trim()||String(x[1]).trim());
+      if(r.length&&!/^[a-z0-9._-]{3,}$/i.test(String(r[0][1]).trim()))r.shift();
+      $('#tx').value=r.map(x=>x.slice(0,3).map(v=>String(v).trim()).join('، ')).join('\n');
+      toast(fa(r.length)+' ردیف خوانده شد؛ بررسی کنید و «ثبت» را بزنید',1);
+    }catch(err){toast('خواندن فایل ممکن نشد')}
+  };
   $('#go').onclick=async()=>{
     let L='';const cid=isS?+$('#cl').value:null;
     for(const l of $('#tx').value.split('\n').filter(x=>x.trim())){
