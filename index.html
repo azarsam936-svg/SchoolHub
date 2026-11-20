@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>سامانه نمرات</title>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Vazirmatn,Tahoma,sans-serif;background:#f3f5f9;color:#1d2433}
+header{display:flex;gap:10px;align-items:center;padding:10px 14px;background:#2b4c9b;color:#fff}
+header span{flex:1;opacity:.8;font-size:13px}
+nav{display:flex;gap:6px;overflow-x:auto;padding:8px 10px;background:#fff;border-bottom:1px solid #dde}
+nav button{background:#eef1f8;color:#2b4c9b;white-space:nowrap}
+nav button.on{background:#2b4c9b;color:#fff}
+main{padding:10px;max-width:760px;margin:auto}
+.card{background:#fff;border-radius:12px;padding:12px;margin-bottom:10px;box-shadow:0 1px 3px #0001}
+input,select,textarea,button{font:inherit;padding:8px 10px;border-radius:8px;border:1px solid #c9d0e0;margin:3px 0;max-width:100%}
+input,select,textarea{width:100%;background:#fff;color:#1d2433}
+button{background:#2b4c9b;color:#fff;border:0;cursor:pointer}
+button.sec{background:#ffffff33}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:7px 4px;border-bottom:1px solid #eee;text-align:right}
+.tot td{font-weight:700;background:#f3f5f9}
+.chip{display:inline-block;background:#eef1f8;border-radius:12px;padding:3px 10px;margin:2px}
+.err{color:#c0392b}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);color:#fff;padding:8px 16px;border-radius:20px;display:none;z-index:9}
+.stats{display:flex;gap:8px;flex-wrap:wrap}
+.stats div{flex:1;min-width:90px;background:#eef1f8;border-radius:10px;padding:8px;text-align:center;font-size:13px}
+.stats b{display:block;font-size:20px}
+pre{white-space:pre-wrap;font-family:inherit;font-size:13px}
+.sc{width:70px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+const U='https://wqccpdenuefkwzmfzdrl.supabase.co',K='sb_publishable_u5Q9gcVskg92y8dwMIH88A_h8vxpuzO';
+const sb=supabase.createClient(U,K);
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const M=['','فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+const ORD=[7,8,9,10,11,12,1,2,3,4,5,6];
+const fa=n=>n==null||isNaN(n)?'-':Number(n).toLocaleString('fa-IR',{maximumFractionDigits:2});
+const nd=s=>s.replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/[٫،,]/g,'.');
+const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
+const em=u=>u.trim().toLowerCase()+'@school.local';
+const opts=(a,v,l)=>a.map(x=>`<option value="${x[v]}">${esc(typeof l==='function'?l(x):x[l])}</option>`).join('');
+const monthOpts=()=>ORD.map(m=>`<option value="${m}">${M[m]}</option>`).join('');
+let me=null;
+
+function toast(t,ok){const e=$('#toast');e.textContent=t;e.style.background=ok?'#1e8449':'#c0392b';e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',3500)}
+async function q(t,s='*',f=x=>x){const {data,error}=await f(sb.from(t).select(s));if(error)toast(error.message);return data||[]}
+async function add(t,o){const {error}=await sb.from(t).insert(o);if(error)toast(error.message);else toast('ثبت شد',1);return !error}
+async function del(t,id){const {error}=await sb.from(t).delete().eq('id',id);if(error)toast(error.message);return !error}
+
+async function boot(){
+  const {data:{session}}=await sb.auth.getSession();
+  if(!session)return loginView();
+  const {data}=await sb.from('profiles').select('*').eq('id',session.user.id).maybeSingle();
+  if(!data){await sb.auth.signOut();return loginView('پروفایل کاربر پیدا نشد')}
+  me=data;shell();
+}
+function loginView(err=''){
+  $('#app').innerHTML=`<div class="card" style="max-width:340px;margin:12vh auto"><h2>ورود به سامانه نمرات</h2><input id="u" placeholder="نام کاربری" dir="ltr" autocomplete="username"><input id="p" type="password" placeholder="رمز عبور" dir="ltr" autocomplete="current-password"><button id="go" style="width:100%">ورود</button><p class="err">${err}</p></div>`;
+  const go=async()=>{
+    const {error}=await sb.auth.signInWithPassword({email:em($('#u').value),password:$('#p').value});
+    if(error)return loginView('نام کاربری یا رمز اشتباه است');
+    boot();
+  };
+  $('#go').onclick=go;$('#p').onkeydown=e=>{if(e.key==='Enter')go()};
+}
+
+const TABS={
+  admin:[['ساختار',adminStruct],['دانش‌آموزان',()=>adminUsers('student')],['معلمان',()=>adminUsers('teacher')],['تخصیص درس',adminAssign],['نمرات و کارنامه',adminGrades]],
+  teacher:[['ثبت نمرات',teacherView]],
+  student:[['کارنامه',()=>report(me.id,$('#v'))],['دروس و نمودار',stuSubjects]]
+};
+function shell(){
+  const t=TABS[me.role];
+  $('#app').innerHTML=`<header><b>${esc(me.full_name)}</b><span>${{admin:'مدیر',teacher:'معلم',student:'دانش‌آموز'}[me.role]}</span><button id="out" class="sec">خروج</button></header><nav>${t.map((x,i)=>`<button data-i="${i}">${x[0]}</button>`).join('')}</nav><main id="v"></main>`;
+  $('#out').onclick=async()=>{await sb.auth.signOut();me=null;loginView()};
+  document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('nav button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');t[b.dataset.i][1]();
+  });
+  document.querySelector('nav button').click();
+}
+
+/* ---------- مدیر ---------- */
+async function adminStruct(){
+  const [c,s]=await Promise.all([q('classes'),q('subjects')]);
+  const box=(title,list,id,ph)=>`<div class="card"><h3>${title}</h3>${list.map(x=>`<span class="chip">${esc(x.name)}</span>`).join('')||'<p>خالی است</p>'}<div><input id="${id}" placeholder="${ph}"><button id="${id}b">افزودن</button></div></div>`;
+  $('#v').innerHTML=box('کلاس‌ها',c,'cn','نام کلاس، مثلاً نهم الف')+box('دروس',s,'sn','نام درس، مثلاً علوم تجربی');
+  $('#cnb').onclick=async()=>{if($('#cn').value.trim()&&await add('classes',{name:$('#cn').value.trim()}))adminStruct()};
+  $('#snb').onclick=async()=>{if($('#sn').value.trim()&&await add('subjects',{name:$('#sn').value.trim()}))adminStruct()};
+}
+async function mkUser(username,password,full_name,role,class_id){
+  const tmp=supabase.createClient(U,K,{auth:{persistSession:false,autoRefreshToken:false,storageKey:'tmp'}});
+  const {data,error}=await tmp.auth.signUp({email:em(username),password});
+  if(error||!data.user)return error?.message||'خطا در ساخت حساب';
+  const {error:e2}=await sb.from('profiles').insert({id:data.user.id,role,username:username.toLowerCase(),full_name});
+  if(e2)return e2.message;
+  if(role==='student'){const {error:e3}=await sb.from('students').insert({id:data.user.id,class_id});if(e3)return e3.message}
+  return null;
+}
+async function adminUsers(role){
+  const [c,p,st]=await Promise.all([q('classes'),q('profiles','*',x=>x.eq('role',role).order('full_name')),q('students')]);
+  const isS=role==='student';
+  const cn=id=>c.find(x=>x.id===id)?.name||'';
+  if(isS&&!c.length){$('#v').innerHTML='<div class="card">اول از بخش «ساختار» کلاس بسازید.</div>';return}
+  $('#v').innerHTML=`<div class="card"><h3>افزودن ${isS?'دانش‌آموز':'معلم'}</h3>${isS?`<select id="cl">${opts(c,'id','name')}</select>`:''}<textarea id="tx" rows="5" placeholder="هر خط یک نفر:&#10;نام کامل، نام کاربری، رمز"></textarea><small>نام کاربری فقط حروف انگلیسی/عدد (مثلاً کد ملی)، رمز حداقل ۶ کاراکتر</small><br><button id="go">ثبت</button><pre id="lg"></pre></div><div class="card"><table><tr><th>نام</th><th>نام کاربری</th>${isS?'<th>کلاس</th>':''}</tr>${p.map(x=>`<tr><td>${esc(x.full_name)}</td><td dir="ltr">${esc(x.username)}</td>${isS?`<td>${esc(cn(st.find(z=>z.id===x.id)?.class_id))}</td>`:''}</tr>`).join('')}</table></div>`;
+  $('#go').onclick=async()=>{
+    let L='';const cid=isS?+$('#cl').value:null;
+    for(const l of $('#tx').value.split('\n').filter(x=>x.trim())){
+      const [n,u,pw]=l.split(/[,،\t]/).map(x=>x.trim());
+      const r=(!n||!/^[a-z0-9._-]{3,}$/i.test(u||'')||(pw||'').length<6)?'قالب خط نادرست':await mkUser(u,pw,n,role,cid);
+      L+=`${n||l}: ${r||'✓'}\n`;$('#lg').textContent=L;
+    }
+    await adminUsers(role);$('#lg').textContent=L;
+  };
+}
+async function adminAssign(){
+  const [c,s,t,a]=await Promise.all([q('classes'),q('subjects'),q('profiles','*',x=>x.eq('role','teacher')),q('assignments')]);
+  const f=(l,id)=>l.find(x=>x.id===id)?.name||l.find(x=>x.id===id)?.full_name||'';
+  $('#v').innerHTML=`<div class="card"><h3>معلم هر درس در هر کلاس</h3><select id="cl">${opts(c,'id','name')}</select><select id="sj">${opts(s,'id','name')}</select><select id="te">${opts(t,'id','full_name')}</select><button id="go">ثبت / جایگزینی</button></div><div class="card"><table>${a.map(x=>`<tr><td>${esc(f(c,x.class_id))}</td><td>${esc(f(s,x.subject_id))}</td><td>${esc(f(t,x.teacher_id))}</td><td><a data-d="${x.id}" style="cursor:pointer;color:#c0392b">حذف</a></td></tr>`).join('')}</table></div>`;
+  $('#go').onclick=async()=>{
+    const {error}=await sb.from('assignments').upsert({class_id:+$('#cl').value,subject_id:+$('#sj').value,teacher_id:$('#te').value},{onConflict:'class_id,subject_id'});
+    if(error)toast(error.message);else{toast('ثبت شد',1);adminAssign()}
+  };
+  document.querySelectorAll('[data-d]').forEach(e=>e.onclick=async()=>{if(confirm('با حذف این تخصیص، نمرات ثبت‌شده‌ی آن هم پاک می‌شود. مطمئنید؟')&&await del('assignments',e.dataset.d))adminAssign()});
+}
+async function adminGrades(){
+  const [c,st,p]=await Promise.all([q('classes'),q('students'),q('profiles','*',x=>x.eq('role','student').order('full_name'))]);
+  $('#v').innerHTML=`<div class="card"><select id="cl">${opts(c,'id','name')}</select><select id="sd"></select></div><div id="rp"></div>`;
+  const show=()=>{$('#sd').value?report($('#sd').value,$('#rp')):$('#rp').innerHTML=''};
+  const fill=()=>{const ids=st.filter(z=>z.class_id==$('#cl').value).map(z=>z.id);$('#sd').innerHTML=opts(p.filter(x=>ids.includes(x.id)),'id','full_name');show()};
+  $('#cl').onchange=fill;$('#sd').onchange=show;fill();
+}
+
+/* ---------- معلم ---------- */
+async function teacherView(){
+  const [as,c,s]=await Promise.all([q('assignments','*',x=>x.eq('teacher_id',me.id)),q('classes'),q('subjects')]);
+  if(!as.length){$('#v').innerHTML='<div class="card">هنوز درسی به شما اختصاص داده نشده است.</div>';return}
+  const nm=a=>`${c.find(x=>x.id===a.class_id)?.name} — ${s.find(x=>x.id===a.subject_id)?.name}`;
+  $('#v').innerHTML=`<div class="card"><select id="as">${opts(as,'id',nm)}</select><select id="mo">${monthOpts()}</select><input id="ti" placeholder="عنوان آزمون (اختیاری)"></div><div id="tl"></div>`;
+  const load=async()=>{
+    const a=as.find(x=>x.id==$('#as').value),m=+$('#mo').value;
+    const st=await q('students','id',x=>x.eq('class_id',a.class_id));
+    const pr=await q('profiles','id,full_name',x=>x.in('id',st.map(z=>z.id)).order('full_name'));
+    const g=await q('grades','*',x=>x.eq('class_id',a.class_id).eq('subject_id',a.subject_id).eq('month',m));
+    $('#tl').innerHTML=`<div class="card"><table><tr><th>دانش‌آموز</th><th>ثبت‌شده</th><th>نمره جدید</th></tr>${pr.map(x=>`<tr><td>${esc(x.full_name)}</td><td>${g.filter(z=>z.student_id===x.id).map(z=>`<span class="chip">${fa(z.score)} <small>${esc(z.title)}</small> <a data-d="${z.id}" style="cursor:pointer;color:#c0392b">✕</a></span>`).join('')}</td><td><input class="sc" data-s="${x.id}" inputmode="decimal" placeholder="از ۲۰"></td></tr>`).join('')}</table><button id="sv">ذخیره نمرات</button></div>`;
+    document.querySelectorAll('[data-d]').forEach(e=>e.onclick=async()=>{if(confirm('این نمره حذف شود؟')&&await del('grades',e.dataset.d))load()});
+    $('#sv').onclick=async()=>{
+      const rows=[];let bad=0;
+      document.querySelectorAll('.sc').forEach(i=>{
+        const v=i.value.trim();if(!v)return;
+        const n=parseFloat(nd(v));
+        if(isNaN(n)||n<0||n>20){bad++;return}
+        rows.push({student_id:i.dataset.s,class_id:a.class_id,subject_id:a.subject_id,month:m,title:$('#ti').value.trim()||'آزمون',score:n});
+      });
+      if(bad)return toast('نمره باید عددی بین ۰ تا ۲۰ باشد');
+      if(!rows.length)return toast('نمره‌ای وارد نشده');
+      const {error}=await sb.from('grades').insert(rows);
+      if(error)toast(error.message);else{toast('ذخیره شد',1);load()}
+    };
+  };
+  $('#as').onchange=load;$('#mo').onchange=load;load();
+}
+
+/* ---------- کارنامه (دانش‌آموز / مدیر) ---------- */
+async function report(sid,el){
+  const [g,s]=await Promise.all([q('grades','*',x=>x.eq('student_id',sid)),q('subjects')]);
+  const sn=Object.fromEntries(s.map(x=>[x.id,x.name]));
+  el.innerHTML=`<div class="card"><select id="mo"><option value="0">کارنامه‌ی کل سال</option>${monthOpts()}</select><div id="rt"></div></div>`;
+  const draw=()=>{
+    const m=+$('#mo').value,by={};
+    g.filter(x=>!m||x.month===m).forEach(x=>(by[x.subject_id]??=[]).push(+x.score));
+    const rows=Object.entries(by).map(([id,a])=>[sn[id],a.map(fa).join('، '),avg(a)]);
+    const tot=avg(rows.map(r=>r[2]));
+    $('#rt').innerHTML=rows.length?`<table><tr><th>درس</th><th>نمرات</th><th>میانگین</th></tr>${rows.map(r=>`<tr><td>${esc(r[0])}</td><td>${r[1]}</td><td>${fa(r[2])}</td></tr>`).join('')}<tr class="tot"><td colspan="2">معدل</td><td>${fa(tot)}</td></tr></table>`:'<p>نمره‌ای ثبت نشده است.</p>';
+  };
+  $('#mo').onchange=draw;draw();
+}
+
+/* ---------- دروس و نمودار (دانش‌آموز) ---------- */
+async function stuSubjects(){
+  const [st,as,s]=await Promise.all([q('students'),q('assignments'),q('subjects')]);
+  const cid=st[0]?.class_id;
+  const subs=as.filter(a=>a.class_id===cid).map(a=>s.find(x=>x.id===a.subject_id)).filter(Boolean);
+  if(!subs.length){$('#v').innerHTML='<div class="card">درسی برای کلاس شما تعریف نشده است.</div>';return}
+  $('#v').innerHTML=`<div class="card"><select id="sj">${opts(subs,'id','name')}</select></div><div id="sd"></div>`;
+  const go=()=>subjDetail(+$('#sj').value,$('#sd'));
+  $('#sj').onchange=go;go();
+}
+function chart(pts){
+  const W=340,H=190,L=26,R=8,T=10,B=50,w=W-L-R,h=H-T-B;
+  const X=i=>W-R-(i/11)*w,Y=v=>T+h-(v/20)*h;
+  let s=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;direction:ltr">`;
+  [0,5,10,15,20].forEach(v=>s+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#e3e6ee"/><text x="${L-4}" y="${Y(v)+3}" font-size="8" text-anchor="end" fill="#667">${fa(v)}</text>`);
+  pts.forEach((p,i)=>s+=`<text x="${X(i)}" y="${H-B+10}" font-size="8" text-anchor="end" fill="#667" transform="rotate(-50 ${X(i)} ${H-B+10})">${M[p[0]]}</text>`);
+  const line=(k,c,d)=>{
+    const a=pts.map((p,i)=>[X(i),p[k]]).filter(z=>z[1]!=null);
+    if(!a.length)return '';
+    return `<polyline fill="none" stroke="${c}" stroke-width="2" ${d?'stroke-dasharray="4"':''} points="${a.map(z=>z[0]+','+Y(z[1])).join(' ')}"/>`+a.map(z=>`<circle cx="${z[0]}" cy="${Y(z[1])}" r="3" fill="${c}"/>`).join('');
+  };
+  return s+line(2,'#9aa3b5',1)+line(1,'#2b4c9b')+'</svg>';
+}
+async function subjDetail(sid,el){
+  const [g,st,cm]=await Promise.all([q('grades','*',x=>x.eq('student_id',me.id).eq('subject_id',sid)),sb.rpc('my_subject_stats',{p_subject:sid}),sb.rpc('class_month_avg',{p_subject:sid})]);
+  const S=st.data?.[0]||{},C=cm.data||[],mine={};
+  g.forEach(x=>(mine[x.month]??=[]).push(+x.score));
+  const pts=ORD.map(m=>{const ca=C.find(c=>c.month===m);return [m,mine[m]?avg(mine[m]):null,ca?+ca.class_avg:null]});
+  const sorted=[...g].sort((a,b)=>ORD.indexOf(a.month)-ORD.indexOf(b.month));
+  el.innerHTML=`<div class="card"><div class="stats"><div><b>${fa(S.my_avg)}</b>میانگین من</div><div><b>${fa(S.class_avg)}</b>میانگین کلاس</div><div><b>${S.rank?fa(S.rank)+' از '+fa(S.class_size):'-'}</b>رتبه در کلاس</div></div></div><div class="card"><h3>نمودار پیشرفت</h3>${chart(pts)}<small>آبی: میانگین ماهانه‌ی من — خاکستری: میانگین کلاس</small></div><div class="card"><table><tr><th>ماه</th><th>عنوان</th><th>نمره</th></tr>${sorted.map(x=>`<tr><td>${M[x.month]}</td><td>${esc(x.title)}</td><td>${fa(x.score)}</td></tr>`).join('')||'<tr><td colspan="3">نمره‌ای ثبت نشده است.</td></tr>'}</table></div>`;
+}
+
+boot();
+</script>
+</body>
+</html>
